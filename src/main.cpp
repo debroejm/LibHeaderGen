@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "flags.h"
 #include "namespacecontainer.h"
 #include "outputfile.h"
 
@@ -20,6 +21,7 @@ void parsePragma(string command, string args[], int argc);
 // Flags
 bool singleGrab = false;
 bool multiGrab = false;
+bool processDefines = false;
 
 // Debug
 string activeFilename = "";
@@ -28,6 +30,15 @@ int activeLineNum = 0;
 // Reading Data
 NamespaceContainer* activeNamespace = NULL;
 int activePriority = 0;
+
+void toggleBool(bool &val) {
+    if(val == true) val = false;
+    else val = true;
+}
+
+void printErrHeader() {
+    cerr << "[" << activeFilename << ":" << activeLineNum << "] ";
+}
 
 int main(int argc, char* argv[]) {
 
@@ -138,16 +149,27 @@ void scanFile(const char* filename) {
         if(sscanf(line, "%99s", header));
         if( strcmp(header, "#pragma") == 0 ) {
             parsePragmaLine(line);
-        } else if(singleGrab || multiGrab) {
-            activeNamespace->addEntry(LineEntry(line), activePriority);
-            if(singleGrab) singleGrab = false;
+        } else if(getFlag(FLAG_GRAB_SINGLE) || getFlag(FLAG_GRAB_MULTI)) {
+            if( strcmp(header, "#define") == 0 && getFlag(FLAG_PROCESS_DEFINES)) {
+                // TODO: Make more robust
+                string defStr(line);
+                unsigned int indexSpace = defStr.find(" ", defStr.find("#")+1);
+                if(indexSpace != defStr.npos) {
+                    unsigned int indexSpace2 = defStr.find(" ", indexSpace+1);
+                    if(indexSpace2 != defStr.npos) {
+                        addCustomDefine(defStr.substr(indexSpace+1, indexSpace2-indexSpace-1),
+                                        defStr.substr(indexSpace2+1,defStr.size()-indexSpace2-2));
+                    }
+                }
+            } else
+                activeNamespace->addEntry(LineEntry(line), activePriority);
+            if(getFlag(FLAG_GRAB_SINGLE)) setFlag(FLAG_GRAB_SINGLE, false);
         }
 
         activeLineNum++;
     }
 
-    singleGrab = false;
-    multiGrab = false;
+    setFlag(FLAG_ALL, false);
 }
 
 void parsePragmaLine(string line) {
@@ -182,8 +204,8 @@ void parsePragmaLine(string line) {
             if (argSec[i] != ' ') valid = true;
         }
         if (!valid && (argVec.size() > 0 || !(indexComma == line.npos || indexComma >= indexRightParen))) {
-            cerr << "[" << activeFilename << ":" << activeLineNum << "] Empty Parameter! (" << argVec.size() << ")" <<
-            endl;
+            printErrHeader();
+            cerr << "Empty Parameter! (" << argVec.size() << ")" << endl;
             return;
         }
 
@@ -210,7 +232,7 @@ void parsePragma(string command, string args[], int argc) {
 
         // Check Arg Count
         if(!(argc == 2 || argc == 3)) {
-            cerr << "[" << activeFilename << ":" << activeLineNum << "] ";
+            printErrHeader();
             if(command == "lhgMultiOn")
                 cerr << "Invalid Number of Parameters for 'lhgMultiOn'; found " << argc << " but requires 2 or 3" << endl;
             else
@@ -230,20 +252,40 @@ void parsePragma(string command, string args[], int argc) {
 
         activeNamespace = getFile(filename)->getNamespace(nmspc);
         activePriority = priority;
-        if(command == "lhgSingle") singleGrab = true;
-        if(command == "lhgMultiOn") multiGrab = true;
+        if(command == "lhgSingle") setFlag(FLAG_GRAB_SINGLE, true);
+        if(command == "lhgMultiOn") setFlag(FLAG_GRAB_MULTI, true);
 
     } else if(command == "lhgMultiOff") {
 
         // Check Arg Count
-        if(argc != 0) {
-            cerr << "[" << activeFilename << ":" << activeLineNum << "] ";
+        if (argc != 0) {
+            printErrHeader();
             cerr << "Invalid Number of Parameters for 'lhgMultiOff'; found " << argc << " but requires 0" << endl;
             return;
         }
 
         activeNamespace->addEntry(LineEntry("\n"));
-        multiGrab = false;
+        setFlag(FLAG_GRAB_MULTI, false);
+
+    } else if(command == "lhgFlagOn" || command == "lhgFlagOff") {
+
+        // Check Arg Count
+        if (argc != 1) {
+            printErrHeader();
+            cerr << "Invalid Number of Parameters for 'lhgFlag'; found " << argc << " but requires 1" << endl;
+            return;
+        }
+
+        bool set = false;
+        if(command == "lhgFlagOn") set = true;
+
+        // Process Flag
+        if(args[0] == "PROCESS_DEFINES") setFlag(FLAG_PROCESS_DEFINES, set);
+        else {
+            printErrHeader();
+            cerr << "Unknown Flag '" << args[0] << "'" << endl;
+            return;
+        }
 
     } else {
         cerr << "[" << activeFilename << ":" << activeLineNum << "] ";

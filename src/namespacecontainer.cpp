@@ -19,7 +19,7 @@ void NamespaceContainer::write(FILE* file, int tabCount) {
 
         // Write Namespace Header
         writeTabSpacing(file, tabCount);
-        fprintf(file, "namespace %s {\n\n", name.c_str());
+        fprintf(file, "namespace %s {\n\n", replaceCustomDefine(name).c_str());
 
         for(auto &iter : entries) {
             for (int i = 0; i < iter.second.size(); i++) {

@@ -3,7 +3,7 @@
 #include <fstream>
 #include <string>
 
-#include "namespacecontainer.h"
+#include "lineentry.h"
 
 using namespace std;
 
@@ -12,15 +12,15 @@ public:
     OutputFile(string filename);
     ~OutputFile();
 
-    FILE* getFile() { return file; }
-    NamespaceContainer* getNamespace(string name);
+    void addEntry(Entry* entry, int priority = 0);
+    void addInclude(string include);
 
     void write();
 
 protected:
-    FILE* file;
     string filename;
-    NamespaceContainer namespaceWrapper;
+    map<int, vector<Entry*>> entries;
+    vector<string> includes;
 
 };
 

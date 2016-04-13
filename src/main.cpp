@@ -5,36 +5,28 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "flags.h"
-#include "namespacecontainer.h"
+#include "misc.h"
+#include "lineentry.h"
 #include "outputfile.h"
 
 using namespace std;
 
 // Prototypes
-bool scanDirectory(const char* dirName, bool recursive, int depth = 1);
+bool scanDirectory(string dirName, bool recursive, int depth = 1);
 bool isHeaderFile(const char* fileName, int nameLen);
-void scanFile(const char* fileName);
+void scanFile(string fileName);
 void parsePragmaLine(string line);
 void parsePragma(string command, string args[], int argc);
-
-// Flags
-bool singleGrab = false;
-bool multiGrab = false;
-bool processDefines = false;
 
 // Debug
 string activeFilename = "";
 int activeLineNum = 0;
 
 // Reading Data
-NamespaceContainer* activeNamespace = NULL;
 int activePriority = 0;
-
-void toggleBool(bool &val) {
-    if(val == true) val = false;
-    else val = true;
-}
+string activeNamespace = "";
+OutputFile* activeFile;
+BlockEntry* activeBlock;
 
 void printErrHeader() {
     cerr << "[" << activeFilename << ":" << activeLineNum << "] ";
@@ -92,17 +84,19 @@ int main(int argc, char* argv[]) {
         // Print info
         cout << "Possible Arguments:" << endl;
         cout << "  -p path     | Specify the directory path to search in" << endl;
+        cout << "  -o path     | Specify the directory to output to" << endl;
+        cout << "  -r          | Parse recursively" << endl;
         return 0;
     }
 }
 
-bool scanDirectory(const char* dirName, bool recursive, int depth) {
+bool scanDirectory(string dirName, bool recursive, int depth) {
     DIR *dir;
     struct dirent *ent;
-    if((dir = opendir(dirName)) == NULL) return false;
+    if((dir = opendir(dirName.c_str())) == NULL) return false;
     while((ent = readdir(dir)) != NULL) {
         if(strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
-        const char* fullPath = (string(dirName)+"\\"+string(ent->d_name)).c_str();
+        string fullPath = dirName+"\\"+string(ent->d_name);
         for (int i = 0; i < depth; i++) cout << "  ";
         cout << ent->d_name << endl;
         if(isHeaderFile(ent->d_name, ent->d_namlen)) {
@@ -132,8 +126,8 @@ bool isHeaderFile(const char* fileName, int nameLen) {
     return ( strcmp(extension, "h") == 0 || strcmp(extension, "hpp") == 0 );
 }
 
-void scanFile(const char* filename) {
-    FILE* file = fopen(filename, "r");
+void scanFile(string filename) {
+    FILE* file = fopen(filename.c_str(), "r");
     if(file == NULL) {
         cerr << "Error opening file: " << filename << endl;
         return;
@@ -161,8 +155,14 @@ void scanFile(const char* filename) {
                                         defStr.substr(indexSpace2+1,defStr.size()-indexSpace2-2));
                     }
                 }
-            } else
-                activeNamespace->addEntry(LineEntry(line), activePriority);
+            } else {
+                if(getFlag(FLAG_GRAB_MULTI)) {
+                    if(activeBlock == NULL) {
+                        printErrHeader();
+                        cerr << "Multi Grab Flag set without instantiating a Block (should not happen, report to creator)" << endl;
+                    } else activeBlock->addEntry(LineEntry(line, activeNamespace));
+                } else activeFile->addEntry(new LineEntry(line, activeNamespace), activePriority);
+            }
             if(getFlag(FLAG_GRAB_SINGLE)) setFlag(FLAG_GRAB_SINGLE, false);
         }
 
@@ -250,10 +250,14 @@ void parsePragma(string command, string args[], int argc) {
             priority *= -1;
         }
 
-        activeNamespace = getFile(filename)->getNamespace(nmspc);
+        activeNamespace = nmspc;
+        activeFile = getFile(filename);
         activePriority = priority;
         if(command == "lhgSingle") setFlag(FLAG_GRAB_SINGLE, true);
-        if(command == "lhgMultiOn") setFlag(FLAG_GRAB_MULTI, true);
+        if(command == "lhgMultiOn") {
+            setFlag(FLAG_GRAB_MULTI, true);
+            activeBlock = new BlockEntry(nmspc);
+        }
 
     } else if(command == "lhgMultiOff") {
 
@@ -264,8 +268,9 @@ void parsePragma(string command, string args[], int argc) {
             return;
         }
 
-        activeNamespace->addEntry(LineEntry("\n"));
+        activeFile->addEntry(new LineEntry("\n", activeNamespace));
         setFlag(FLAG_GRAB_MULTI, false);
+        activeFile->addEntry(activeBlock, activePriority);
 
     } else if(command == "lhgFlagOn" || command == "lhgFlagOff") {
 

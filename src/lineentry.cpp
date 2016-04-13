@@ -1,38 +1,21 @@
 #include "lineentry.h"
 
-map<string, string> defines;
+#include <limits>
 
-void addCustomDefine(string define, string replacement) {
-    defines[define] = replacement;
-}
+#include "misc.h"
 
-bool textChar(char c) {
-    return ( (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c == 95) || (c >= 97 && c <= 122) );
-}
-
-string replaceCustomDefine(string line) {
-    string result = line;
-    for(auto iter : defines) {
-        unsigned int index = result.find(iter.first);
-        if(index != line.npos) {
-            if(!textChar(line[index+iter.first.size()])) {
-                result.replace(index, iter.first.size(), iter.second);
-            }
-        }
-    }
-    return result;
-}
-
-LineEntry::LineEntry(string line) : line(trimLine(line)) { }
+LineEntry::LineEntry(string line, string nmspc) : line(trimLine(line)), Entry(nmspc) { }
 
 LineEntry &LineEntry::operator=(const LineEntry rhs) {
     line = rhs.line;
+    originalSpacing = rhs.originalSpacing;
+    spacing = rhs.spacing;
 
     return *this;
 }
 
-string LineEntry::getData() {
-    return line;
+string LineEntry::getData(int perLineSpace) {
+    return space(perLineSpace + spacing) + line;
 }
 
 string LineEntry::trimLine(string line) {
@@ -43,7 +26,52 @@ string LineEntry::trimLine(string line) {
             break;
         }
     }
+    originalSpacing = firstIndex;
     string result = replaceCustomDefine(line.substr(firstIndex, line.npos));
-
     return result;
+}
+
+BlockEntry::BlockEntry(string nmspc) : Entry(nmspc) {
+
+}
+
+BlockEntry &BlockEntry::operator=(const BlockEntry rhs) {
+    entries = rhs.entries;
+    trimmed = rhs.trimmed;
+    return *this;
+}
+
+BlockEntry &BlockEntry::operator=(const LineEntry rhs) {
+    entries.clear();
+    addEntry(rhs);
+    return *this;
+}
+
+void BlockEntry::addEntry(LineEntry entry) {
+    entries.push_back(entry);
+    trimmed = false;
+}
+
+string BlockEntry::getData(int perLineSpace) {
+    if(!trimmed) trimBlock();
+    string result = "";
+    for(LineEntry &entry : entries)
+        result += entry.getData(perLineSpace);
+    return result;
+}
+
+void BlockEntry::clear() {
+    entries.clear();
+    trimmed = true;
+}
+
+void BlockEntry::trimBlock() {
+    int lowestSpacing = std::numeric_limits<int>::max();
+    for(LineEntry &entry : entries) {
+        if(entry.getOriginalSpacing() < lowestSpacing) lowestSpacing = entry.getOriginalSpacing();
+    }
+    for(LineEntry &entry : entries) {
+        entry.spacing = entry.getOriginalSpacing() - lowestSpacing;
+    }
+    trimmed = true;
 }
